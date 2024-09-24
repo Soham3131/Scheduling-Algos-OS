@@ -1,0 +1,412 @@
+#include <iostream>
+#include <vector>
+#include <queue>
+#include <algorithm>
+#include <iomanip>
+#include <map>
+
+using namespace std;
+
+// Struct for process attributes
+struct process {
+    int id;
+    int arrival;
+    int burst;
+    int priority;
+    int remaining;   // for round robin
+    int waiting = 0;
+    int completion;
+    int turnaround = 0;
+};
+// Function to reset processes' states before running the next algorithm
+void resetProcesses(vector<process>& processes, const vector<process>& original) {
+    for (int i = 0; i < processes.size(); i++) {
+        processes[i].completion = 0;
+        processes[i].turnaround = 0;
+        processes[i].waiting = 0;
+        processes[i].remaining = original[i].burst;  // For Round Robin
+    }
+}
+
+map<string, tuple<float, float,float>> avgMetrics; // To store average waiting and turnaround times
+
+
+// Custom comparator to sort by arrival time
+bool sortbyarrival(const process &a, process &b) {
+	 if (a.arrival == b.arrival) {
+        return a.priority < b.priority;  // Use priority if arrival times are the same
+    }
+    return a.arrival < b.arrival;
+}
+// Function to calculate CPU Utilization
+
+float calculateCpuUtilization(const vector<process>& processes) {
+    int totalBurstTime = 0;
+    int totalTime = 0;
+    int idleTime = 0;  // Track idle time
+
+    for (int i = 0; i < processes.size(); i++) {
+        totalBurstTime += processes[i].burst;
+        // Calculate idle time if the next process starts after the previous one finishes
+        if (i > 0 && processes[i].arrival > processes[i - 1].completion) {
+            idleTime += processes[i].arrival - processes[i - 1].completion;
+        }
+        totalTime = max(totalTime, processes[i].completion); // Last completion time
+    }
+
+    // Subtract idle time from total time to get active CPU time
+    float cpuUtilization = (static_cast<float>(totalBurstTime) / (totalTime + idleTime)) * 100;
+    //cout << "CPU Utilization: " << fixed << setprecision(2) << cpuUtilization << "%" << endl;
+    return cpuUtilization;
+}
+
+// Function to calculate average waiting time and turnaround time
+void calculateAverages(const vector<process>& processes, const string& algorithmName) {
+    int totalWaiting = 0, totalTurnaround = 0;
+    int n = processes.size();
+
+    for (const auto& p : processes) {
+        totalWaiting += p.waiting;
+        totalTurnaround += p.turnaround;
+    }
+
+    // Calculate averages
+    float avgWaiting = (float)totalWaiting / n;
+    float avgTurnaround = (float)totalTurnaround / n;
+    float cpuUtilization = calculateCpuUtilization(processes);
+
+   
+    
+    avgMetrics[algorithmName]=make_tuple(avgWaiting, avgTurnaround,cpuUtilization);
+   
+    
+     cout << "Average Waiting Time: " << avgWaiting << endl;
+    cout << "Average Turnaround Time: " << avgTurnaround << endl;
+     cout << "CPU Utilization (" << algorithmName << "): " << cpuUtilization << "%" << endl;
+}
+
+
+
+
+
+// Function to calculate waiting and turnaround times
+void calculateTimes(vector<process> &processes) {
+    for (auto &p : processes) {
+        p.turnaround = p.completion - p.arrival;
+        p.waiting = p.turnaround - p.burst;
+    }
+}
+void printGanttChart(const vector<process>& processes) {
+    int maxTime = 0;  // Track the maximum completion time for chart width
+    for (const auto &p : processes) {
+        maxTime = max(maxTime, p.completion);
+    }
+    
+     	cout<<endl<<"                                                  GANTT CHART                                        " <<endl;
+        cout <<"-------------------------------------------------------------------------------------------------------------------------------" ;
+    cout << endl;
+    // Print the time scale at the top
+    cout << "  ";
+    for (int i = 0; i <= maxTime; ++i) {
+        cout << setw(3) << i;  // Print time with a width of 3
+    }
+    cout << endl;
+
+    // Print process labels and Gantt bars
+    for (const auto &p : processes) {
+        cout << "P" << p.id << " ";  // Print process ID with a space for alignment
+
+        // Print spaces up to the arrival time
+        for (int i = 0; i < p.arrival; ++i) {
+            cout << "   ";  // Space for alignment before the process starts
+        }
+
+        // Print the Gantt chart bars for the burst duration
+        for (int i = p.arrival; i < p.completion; ++i) {
+            cout << " - ";  // Print the execution bar
+        }
+        
+        cout << endl;
+    }
+}
+
+
+// Function to print the times for each process
+void printTimes(const vector<process> &processes) {
+    cout << "\nProcess\tArrival\tBurst\tCompletion\tTurnaround\tWaiting\n";
+    for (const auto &p : processes) {
+        cout << p.id << "\t" << p.arrival << "\t" << p.burst << "\t"
+             << p.completion << "\t\t" << p.turnaround << "\t\t" << p.waiting << endl;
+    }
+    printGanttChart(processes);
+}
+
+// First Come First Serve Scheduling
+void fcfs(vector<process> &processes) {
+    cout << "FCFS Scheduling" << endl;
+    int n = processes.size();
+    sort(processes.begin(), processes.end(), sortbyarrival);
+
+    int time = 0;
+    for (auto &p : processes) {
+        if (time < p.arrival) {
+            time = p.arrival;  // If the process arrives late
+        }
+        cout << "Process " << p.id << " is running from " << time << " to " << time + p.burst << endl;
+        time += p.burst;
+        p.completion = time;
+    }
+
+    calculateTimes(processes);
+    printTimes(processes);
+   
+    calculateAverages(processes,"FCFS");
+    calculateCpuUtilization(processes);
+}
+
+// Shortest Job First Scheduling
+void sjf(vector<process> &processes) {
+    cout << "SJF Scheduling" << endl;
+
+    int n = processes.size(), time = 0, completed = 0;
+    vector<bool> done(n, false);
+
+    while (completed < n) {
+        int shortest = -1;
+        for (int i = 0; i < n; i++) {
+            if (!done[i] && processes[i].arrival <= time) {
+                if (shortest == -1 || processes[i].burst < processes[shortest].burst) {
+                    shortest = i;
+                }
+            }
+        }
+        
+        if (shortest == -1) {
+            time++;
+        } else {
+            cout << "Process " << processes[shortest].id << " is running from " << time << " to " << time + processes[shortest].burst << endl;
+            time += processes[shortest].burst;
+            processes[shortest].completion = time;
+            done[shortest] = true;
+            completed++;
+        }
+    }
+
+    calculateTimes(processes);
+    printTimes(processes);
+    calculateAverages(processes,"SJF"); 
+    calculateCpuUtilization(processes);
+}
+
+// Longest Job First Scheduling
+void ljf(vector<process> &processes) {
+    cout << "\nLongest Job First Scheduling\n";
+
+    int n = processes.size(), time = 0, completed = 0;
+    vector<bool> done(n, false);
+
+    while (completed < n) {
+        int longest = -1;
+
+        for (int i = 0; i < n; i++) {
+            if (!done[i] && processes[i].arrival <= time) {
+                if (longest == -1 || processes[i].burst > processes[longest].burst) {
+                    longest = i;
+                }
+            }
+        }
+
+        if (longest == -1) {
+            time++;
+        } else {
+            cout << "Process " << processes[longest].id << " is running from " << time << " to " << time + processes[longest].burst << endl;
+            time += processes[longest].burst;
+            processes[longest].completion = time;
+            done[longest] = true;
+            completed++;
+        }
+    }
+
+    calculateTimes(processes);
+    printTimes(processes);
+    calculateAverages(processes,"LJF");
+	calculateCpuUtilization(processes); 
+}
+
+// Round Robin Scheduling
+void roundrobin(vector<process> &processes, int quantum) {
+    cout << "\nRound Robin Scheduling\n";
+    int n = processes.size(), time = 0;
+    queue<int> q;
+
+    // Initialize remaining times
+    for (int i = 0; i < n; i++) {
+        processes[i].remaining = processes[i].burst;
+    }
+
+    int i = 0;
+    while (i < n || !q.empty()) {
+        // Add all processes that have arrived
+        while (i < n && processes[i].arrival <= time) {
+            q.push(i);
+            i++;
+        }
+
+        if (!q.empty()) {
+            int idx = q.front();
+            q.pop();
+            int execTime = min(quantum, processes[idx].remaining);
+            cout << "Process " << processes[idx].id << " is running from " << time << " to " << time + execTime << endl;
+            time += execTime;
+            processes[idx].remaining -= execTime;
+            if (processes[idx].remaining > 0) {
+                q.push(idx);
+            } else {
+                processes[idx].completion = time;
+            }
+        } else {
+            if (i < n && q.empty()) {
+                time = processes[i].arrival;
+            } else {
+                time++;
+            }
+        }
+    }
+
+    calculateTimes(processes);
+    printTimes(processes);
+    calculateAverages(processes,"RR");
+	calculateCpuUtilization(processes); 
+}
+
+// Priority Scheduling
+void priority(vector<process> &processes) {
+    cout << "Priority Scheduling" << endl;
+
+    int n = processes.size(), time = 0, completed = 0;
+    vector<bool> done(n, false);
+
+    while (completed < n) {
+        int highest = -1;
+        for (int i = 0; i < n; i++) {
+    if (!done[i] && processes[i].arrival <= time) {
+        if (highest == -1 || 
+            processes[i].priority < processes[highest].priority || 
+            (processes[i].priority == processes[highest].priority && processes[i].arrival < processes[highest].arrival)) {
+            highest = i;
+        }
+    }
+}
+
+        if (highest == -1) {
+            time++;
+        } else {
+            cout << "Process " << processes[highest].id << " is running from " << time << " to " << time + processes[highest].burst << endl;
+            time += processes[highest].burst;
+            processes[highest].completion = time;
+            done[highest] = true;
+            completed++;
+        }
+    }
+
+    calculateTimes(processes);
+    printTimes(processes);
+    calculateAverages(processes,"PRIORITY"); 
+    calculateCpuUtilization(processes);
+}
+
+// Function to input processes from the user
+vector<process> inputProcesses() {
+    int n;
+    cout << "Enter the number of processes: ";
+    cin >> n;
+
+    vector<process> processes(n);
+    for (int i = 0; i < n; i++) {
+    cout << "Enter arrival time, burst time, and priority for process " << i + 1 << ": ";
+    processes[i].id = i + 1;
+
+    int arrival, burst, priority;
+    cin >> arrival >> burst >> priority;
+
+    processes[i].arrival = abs(arrival);
+    processes[i].burst = abs(burst);
+    processes[i].priority = abs(priority);
+}
+    return processes;
+}
+
+// Main function
+int main() {
+    vector<process> originalProcesses = inputProcesses();   // Get the input processes
+    vector<process> processes = originalProcesses; 
+    int choice;
+    
+    bool running = true;  // Loop control flag
+
+    while (running) {
+        cout << "\nSelect Scheduling Algorithm:\n";
+        cout << "1. FCFS\n2. SJF\n3. LJF\n4. Round Robin\n5. Priority Scheduling\n6. Compare performances done till now \n7. Exit\n";
+        cout << "Enter your choice: ";
+        cin >> choice;
+        
+        processes = originalProcesses;
+        resetProcesses(processes, originalProcesses);
+        
+        switch (choice) {
+            case 1:
+                fcfs(processes);
+                break;
+            case 2:
+                sjf(processes);
+                break;
+            case 3:
+                ljf(processes);
+                break;
+            case 4: {
+                int quantum;
+                cout << "Enter time quantum for Round Robin: ";
+                cin >> quantum;
+                roundrobin(processes, quantum);
+                break;
+            }
+            case 5:
+                priority(processes);
+                break;
+            case 6:
+                cout << "\nComparison of Scheduling Algorithms that u have performed :\n";
+               cout<<endl; 
+    cout << "Algorithm\tAvg Waiting\tAvg Turnaround\t\tCPU Utilization\n";
+    cout<<endl;
+    for (const auto& entry : avgMetrics) {
+      cout << left 
+     << setw(20) << entry.first 
+     << setw(20) << get<0>(entry.second)  // Average Waiting Time
+     << setw(20) << get<1>(entry.second)  // Average Turnaround Time
+     << get<2>(entry.second) << "%" << endl; // CPU Utilization
+     }
+    break;
+            case 7:
+            	
+            	 running = false;  // Exit the loop
+                cout << "Exiting the program." << endl;
+                break;
+            	
+            default:
+                cout << "Invalid choice. Try again." << endl;
+        }
+
+        if (choice != 7) {
+        	int continue_choice;
+            cout << "\nDo you want to continue? (1: Yes, 0: No): ";
+            
+            cin >> continue_choice;
+            if (continue_choice == 0) {
+                running = false;  // Exit the loop if the user chooses to stop
+                cout << "Exiting the program." << endl;
+            }
+        }
+    }
+
+    return 0;
+}
